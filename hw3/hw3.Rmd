@@ -5,6 +5,7 @@ date: "10/12/2016"
 output: pdf_document
 ---
 
+Note: question 1 is writen in latex and is attached at the last of the document. All other question is compiled by R markdown.  
 
 2. Implement in R logistic regression based on gradient descent. To avoid unnecessary slowdown use vectorized code when computing the gradient (avoid loops).
 ```{r}
@@ -31,7 +32,7 @@ gradient_descent <- function(X, Y, eta = 0.01, max_iteration = 20000, epsilon = 
                 er_in <- t(X_train) %*% H / nrow(X_train)
                 theta_new <- theta - eta * er_in
           
-                if((any(abs(theta_new - theta))) <= epsilon) {
+                if(sum(abs(theta_new - theta)) <= epsilon) {
                                print(i)
                               break;}
                 
@@ -43,6 +44,7 @@ gradient_descent <- function(X, Y, eta = 0.01, max_iteration = 20000, epsilon = 
 ```
 3. Train and evaluate your code on the BreastCancer data from the mlbench R package.Specifically, randomly divide the dataset into 70% for training and 30% for testing and train on the training set and report your accuracy (fraction of times the model made a mistake) on the train set and on the test set. Repeat the random partition of 70% and 30% 10 times and average the test accuracy results over the 10 repetitions. Try several different selections of starting positions - did this change the parameter value that the model learned? Try to play with different convergence criteria to get better accuracy.
 ```{r}
+options(warn = -1) # used to suppress warning from glm2 not converaging
 
 data(BreastCancer)
 #dim(BreastCancer)
@@ -196,9 +198,12 @@ for(i in seq_along(theta_list)){
 rownames(result) <- NULL
 #drop the first row of placeholder
 result <- result[-1, ]
-colnames(result) <- c("inital_theta", "epsilon", "train_accur", "test_accur")
+colnames(result) <- c("initial_theta", "epsilon", "train_accur", "test_accur")
 print(result)
 ```
+
+for the table we can see different initial theta and convergence criteria do not affect accuracy much.
+
 
 4. Repeat (3) but this time using logistic regression training code from an R package such as glm2. How did the accuracy in (4) compare to the accuracy in (3).
 ```{r}
@@ -236,7 +241,6 @@ We can see my model accuracy is very close to glm2 package.
 5. Repeat (4), but replace the 70%-30% train-test split with each of the following splits: 5%-95%, 10%-90%, …, 95%-5%. Graph the accuracy over the training set and over the testing set as a function of the size of the train set. Remember to average the accuracy over 10 random divisions of the data into train and test sets of the above sizes so the graphs will be less noisy.
 
 ```{r}
-options(warn = -1) # used to suppress warning from glm2 not converaging
 
 
 calculate_accuracy <- function(percent){
@@ -308,7 +312,7 @@ ggplot(melt_accuracy,
   
 
 ```
-
+From graph we can see, with lower percentage of training data, model has relative low accuracy on test dataset and that means our model is under trained. Until we used at least 50% of data to train the model, the model gives a good prediction on test dataset. 
 
 6. Repeat (5) but instead of graphing the train and test accuracy, graph the logistic regression loss function (negative log likelihood) over the train set and over the test set as a function of the train set size.
 ```{r}
@@ -390,5 +394,6 @@ ggplot(melt_nll,
   geom_point() + 
   ylab("negative log likelihood") + 
   ggtitle("Compare negative log likelihood with different percentage of training data") 
-
 ```
+
+It showed very similar trend as last question. We can see with the increase of traning data, the negative log likelihood value of test dataset is decresing. Until it equals to the value of train dataset at around 55%.  
