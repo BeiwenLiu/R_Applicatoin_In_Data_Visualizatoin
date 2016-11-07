@@ -1,0 +1,113 @@
+---
+title: "DataVisualAnalytics_HW1"
+author: "Weifeng She"
+date: "August 25, 2016"
+output: pdf_document
+email: wshe1@gatech.edu
+---
+
+2. Implement a function that computes the log of the factorial value of an
+integer using a for loop. Note that implementing it using log(A)+log(B)+
+··· avoids overflow while implementing it as log(A · B · ···) creates an
+overflow early on.
+```{r}
+library(ggplot2)
+library(reshape)
+logfact1 <- function(n){
+   res = 0
+   for(i in 1:n){
+           res <- res + log(i)
+   }
+   return(res)
+}
+```
+3. Implement a function that computes the log of the factorial value of an
+integer using recursion.
+
+```{r}
+logfact2 <- function(n){
+   if(n == 1) {
+           return(log(1))
+   }else{
+           return(logfact2(n-1) + log(n))
+   }
+}
+
+```
+4. Using your two implementations of log-factorial in (2) and (3) above, compute
+the sum of the log-factorials of the integers 1, 2,...,N for various N
+values.
+```{r}
+# Define the function to calculate the sum using log-factorial
+sumLogFact <- function(N, func){
+        res = 0
+        for(i in 1:N){
+                res = res + func(i)
+        }
+        res
+}
+NList1 <- seq(from = 0, to = 5000, by = 200)
+NList1[[1]] <- 1
+# calculate the sum using log-factorial in (2) 
+logfact1Value = c()
+for(N in NList1){
+        result <- sumLogFact(N, logfact1)
+        logfact1Value <- c(logfact1Value, result)
+        print(result)
+}
+
+# calculate the sum using log-factorial in (3) 
+options(expressions=500000)
+NList2 = seq(from = 0, to = 2200, by = 200)
+NList2[[1]] <- 1
+logfact2Value = c()
+for(N in NList2){
+        result <- sumLogFact(N, logfact2)
+        logfact2Value <- c(logfact2Value, result)
+        print(result)
+}
+
+```
+5. Compare the execution times of your two implementations for (4) with an
+implementation based on the offcial R function lfactorial(n). You
+may use the function system.time() to measure execution time. What
+are the growth rates of the three implementations as N increases? Use the
+command options(expressions=500000) to increase the number of
+nested recursions allowed. Compare the timing of the recursion implementation
+as much as possible, and continue beyond that for the other two
+implementations.
+```{r}
+logfact1Time <- c()
+logfact2Time <- c()
+logfact3Time <- c()
+for(N in NList1){
+        time1 <- system.time(sumLogFact(N, logfact1))[3]
+        time3 <- system.time(sumLogFact(N, lfactorial))[3]
+        logfact1Time <- c(logfact1Time, time1)
+        logfact3Time <- c(logfact3Time, time3)
+}
+
+for(N in NList2){
+        time2 <- system.time(sumLogFact(N, logfact2))[3]
+        logfact2Time <- c(logfact2Time, time2)
+}
+sup <- replicate(n=length(logfact1Time) -length(logfact2Time), NaN )
+logfact2Time <- c(logfact2Time, sup)
+timeVector <- cbind(N = NList1, forloop = logfact1Time, recursion = logfact2Time, lfactorial = logfact3Time)
+row.names(timeVector) <- NULL
+timeVector <- as.data.frame(timeVector)
+head(timeVector)
+mtimeVector <- melt(timeVector, id = c("N"))
+
+ggplot(mtimeVector, aes(x=N, y=value, color = variable)) + 
+  geom_line() +
+  geom_point() + 
+  ggtitle("Comparing execution time of different functions") +
+  ylab("Elapsed time in seconds")
+
+```
+
+
+From the graph we can see the growth rate of execution time for recursion implementation is expotiential, almost linear for lfactorial, and implementation for for loop is between other two. 
+
+

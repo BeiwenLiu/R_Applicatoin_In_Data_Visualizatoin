@@ -1,0 +1,223 @@
+---
+title: "hw2"
+author: "Weifeng She"
+date: "August 29, 2016"
+output: pdf_document
+---
+
+1.Using the mpg data, describe the relationship between highway mpg and
+car manufacturer. Describe which companies produce the most and least
+fuel e!cient cars, and display a graph supporting your conclusion.
+
+```{r}
+library(ggplot2)
+library(reshape)
+data(mpg)
+head(mpg)
+ggplot(mpg, aes(reorder(manufacturer, -hwy, median), hwy)) + 
+        geom_boxplot() +
+        coord_flip() +
+        scale_x_discrete("manufacturer") +
+        ggtitle("Comparing the highway mpg of different manufacturer") +
+        ylab("manufacturer") + 
+        xlab("high mpg")
+ 
+
+```
+
+When we graph the boxplot of highway mpg versus each manufacturer and then order the graph from the lowest to highest of mpg median. We can see Land rover has the lowest mpg and Honda has the highest mpg. 
+
+2. Using the mpg data, explore the three-way relationship between highway
+mpg, city mpg, and model class. What are your observations? Display a
+graph supporting these observations.
+
+
+```{r}
+qplot(x = hwy, 
+      y = cty,
+      facets = .~class,
+      data = mpg,
+      main = "High way mpg vs. City mpg by class") +
+        stat_smooth(se=FALSE)
+```
+From the scatter plot of city mpg vs. highway mpg by class, except for 2seater only has very few points, we can see for all other classes of cars, city mpg is positively related with highway mpg.  
+
+
+3. What are the pros and cons of using a histogram vs a box plot? Which one will you prefer for what purpose?
+
+
+Histograms are useful, easy to graph one dimensional data. It could be used for discrete, continuous and even unordered data. With proper bin width, we can know the distribution of the data. But it could not be used for multiple categorical data and also little information is displayed. 
+
+Boxplot is an alternative of histogram. The centerline of the box is the median and edges correspond to the first and third quantiles. Whiskers extend out to 1.5 times the IQR(inner quantile region) and points outside of the whiskers denote the outliers. 
+Box plot does not contain the information about the data distribution. But it is easier to read the median and IQR.  
+
+
+4. Generate two sets of N random points using the function runif and display
+a corresponding scatter plot. If you save the file to disk, what is the
+resulting file size for the following file formats: ps, pdf, jpeg, png? How do
+these values scale with increasing N?
+
+```{r}
+points <- c(10, 100, 1000, 10000, 100000)
+
+df <- data.frame(ps = numeric(0), 
+                 pdf = numeric(0),
+                 png = numeric(0),
+                 jpeg = numeric(0))
+postfix <- c('.ps', '.pdf', '.png', '.jpeg')
+functions <- c(postscript, pdf, png, jpeg)
+
+for(i in seq_along(points)) {
+  x = runif(points[[i]], min = 0, max = 100)
+  y = runif(points[[i]], min = 0, max = 100)
+  for(j in seq_along(functions)){  
+      filename <- paste("plot", toString(i), postfix[[j]], sep = '')
+      
+      functions[[j]](filename)
+      plot(x, y)
+      dev.off()
+      df[i, j] <-  file.info(filename)$size 
+}
+}
+df$points <- points
+df
+meltdf <- melt(df, id = c("points"))
+
+ggplot(meltdf, aes(x=log10(points), y=value, color = variable)) + 
+  geom_line() +
+  geom_point() + 
+  ggtitle("Comparing the size of different format file") +
+  xlab("points in log10 base") +
+  ylab("file size in bytes")
+```
+
+Here I chose different amount of uniform distributed points from 10 to 100000. With the expotientially increasing of the points before 10000, generally the size of file is also inceasing linearly. But from 10000 to 100000, the size of png and jpeg file did not crease, only ps and pdf file increased exponentially.      
+```{r, echo=FALSE}
+#this piece code of function 9345354from 
+#http://www.cookbook-r.com/Graphs/Multiple_graphs_on_one_page_(ggplot2)/
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+
+  numPlots = length(plots)
+
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                    ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+
+ if (numPlots==1) {
+    print(plots[[1]])
+
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+```
+
+5. The diamonds dataset within ggplot2 contains 10 columns (price, carat, cut, color, etc.) for 53940 diferent diamonds. Type help(diamonds) for more information. Plot histograms for color, carat, and price, and comment on their shapes. Investigate the three-way relationship between price, carat, and cut. What are your conclusions? Provide graphs that support your conclusions. If you encounter computational difculties, consider using a smaller dataframe whose rows are sampled from the original diamonds dataframe. Use the function sample to create a subset of indices that may be used to create the smaller dataframe.
+
+```{r}
+data(diamonds)
+set.seed(1)
+diamondsSubset = diamonds[sample(dim(diamonds)[1], dim(diamonds)[1]/10),]
+mfrow = c(1, 3)
+p1 <- qplot(x = color, data = diamondsSubset, main = "Counts for diamonds with different color")
+p2 <- qplot(x = carat, data = diamondsSubset, main = "Counts for diamonds with different carat")
+p3 <- qplot(x = cut, data = diamondsSubset, main = "Counts for diamonds with different cut")
+
+multiplot(p1, p2, p3, cols=2)
+
+#ggplot(diamonds, aes(carat, price, color= cut)) + geom_point()
+```
+
+We can get following conclusions from the above three histgrams for color, carat and cut of the diamonds: 
+(a) there are the least amount of diamond with worst color(J), the most amount for G and the best color(D) is in the middle. 
+(b) The lower the carat, the higher amount the diamonds. 
+(c) The increasing the quality of the cut, the higher amount of the diamonds.
+
+
+```{r}
+
+ggplot(diamondsSubset, aes(carat, price, color= cut)) + 
+  geom_point()  + 
+  ggtitle('Comparing price and carat of diamonds with different cuts')
+
+ggplot(diamondsSubset, aes(log(carat), log(price), color= cut)) + 
+  geom_point()  +
+  stat_smooth(method = "lm",se = F)
+  ggtitle('Comparing price and carat of diamonds with different cuts')
+
+
+fair <- subset(diamondsSubset, cut == "Fair")
+
+ggplot(fair, aes(carat, price)) + 
+  geom_point() + 
+  ggtitle("Fair Cut")
+
+ggplot(fair, aes(log(carat), log(price))) + 
+  geom_point() + 
+  ggtitle("Fair Cut")
+
+good <- subset(diamondsSubset, cut == "Good")
+
+ggplot(good, aes(carat, price)) + 
+  geom_point() +
+  ggtitle("Good Cut")
+
+ggplot(good, aes(log(carat), log(price))) + 
+  geom_point() +
+  ggtitle("Good Cut")
+
+
+verygood <- subset(diamondsSubset, cut == "Very Good")
+
+ggplot(verygood, aes(carat, price)) + 
+  geom_point() + 
+  ggtitle("Very Good Cut")
+
+ggplot(verygood, aes(log(carat), log(price))) + 
+  geom_point() + 
+  ggtitle("Very Good Cut")
+
+premium <- subset(diamondsSubset, cut == "Premium")
+
+ggplot(premium, aes(carat, price)) + 
+  geom_point() + 
+  ggtitle("Premium Cut")
+
+ggplot(premium, aes(log(carat), log(price))) + 
+  geom_point() + 
+  ggtitle("Premium Cut")
+
+ideal <- subset(diamondsSubset, cut == "Ideal")
+ggplot(ideal, aes(carat, price)) + 
+  geom_point() + 
+  ggtitle("Ideal Cut")
+
+ggplot(ideal, aes(log(carat), log(price))) + 
+  geom_point() + 
+  ggtitle("Ideal Cut")
+
+
+```
+
+
+Here we subset 10% of the data and graph the price vesus the carat for all cuts. When we look at the relationship between carat an price for all cuts, we can see price increases exponentially with the increase of carats. Then when we graph the log of carat with the log of price, we can see there is a clear linear relationship between them. This fact also holds true when we graph each cut individually. Also from the linear regression line, we can see the best quality of the cut(Ideal) has the highest price and the worst quality of the cut (Fair) has the lowest price. 
