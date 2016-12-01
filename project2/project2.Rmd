@@ -1,0 +1,768 @@
+---
+title: "project2.R"
+author: "Weifeng She"
+date: "11/21/2016"
+output: pdf_document
+---
+
+1. Use linear regression to predict profit based on all available numeric variables. Graph the train and test MSE as a function of the train set size (averaged over 10 random data partitions as described above)?
+
+```{r}
+library(GGally)
+library(reshape)
+library(ggplot2)
+library(tm)
+library(caret)
+#library(qdap)
+library(dplyr)
+library(topicmodels)
+library(tidyr)
+library(reshape2)
+library(Matrix)
+```
+
+In this dataset numeric variables include: Runtime, Metascore, imdbRating
+imdbVotes , tomatoMeter, tomatoRating, tomatoReviews,tomatoFresh, tomatoRotten, tomatoUserMeter, tomatoUserRating, tomatoUserReviews.
+Since tomatoMeter = tomatoFresh/(tomatoFresh + tomatoRotten) and tomatoReviews = tomatoFresh + tomatoRotten, both are not used for model building. 
+
+The lm model based on all the numeric variables could get mse at 1.02e+16 for test data.  
+```{r}
+load("movies_merged")
+movies_merged = subset(movies_merged, Type == "movie")
+dim(movies_merged) # after subset, there are only 40000 movies left
+# remove all the NA rows for Gross and Budget
+movies_merged = movies_merged[complete.cases(movies_merged$Gross),]
+movies_merged = movies_merged[complete.cases(movies_merged$Budget),]
+# create Profit column
+movies_merged$Profit <- movies_merged$Gross - movies_merged$Budget
+# drop Gross and Budget column
+movies_merged$Gross <- NULL
+movies_merged$Budget <- NULL # 4558 X 38
+movies_merged = movies_merged[movies_merged$Year >= 2000, ] # 3332 X 38
+dim(movies_merged) # only 3332 rows left
+# print out the column names 
+colnames(movies_merged)
+# convert factor variable to numeric
+movies_merged$Metascore <- as.numeric(as.character(movies_merged$Metascore))
+# check how many NAs in each column  
+sapply(movies_merged, function(x) sum(is.na(x)))  
+
+# we can see there are no missing value in both Budget and Gross columns
+# select the numeric columns 
+movies_numeric <- movies_merged[, c(5, 15, 16, 17, 22, 24, 25, 27, 28, 29, 38)]
+dim(movies_numeric) # 3332 X 11
+head(movies_numeric)
+
+# convert Runtime to numeric value
+head(sort(unique(movies_numeric$Runtime)))
+tail(sort(unique(movies_numeric$Runtime))) 
+
+# Runtime_num function modified from project 1
+Runtime_num <- c()
+
+for(i in seq_along(movies_numeric$Runtime)){
+        
+        x <- strsplit(movies_numeric$Runtime[i], ' ')[[1]]
+        if (length(x) ==  2){ 
+                if(x[2] == "min") #3) "xx min"
+                {Runtime_num <- c(Runtime_num, suppressWarnings(as.numeric(x[1])))}
+                # 4)"xx h"
+                else{Runtime_num <- c(Runtime_num, suppressWarnings(as.numeric(x[1])) * 60)}
+        }
+        # 2) "XX h xx min"
+        else if( length((x) == 4)) {
+                Runtime_num <- c(Runtime_num, suppressWarnings(as.numeric(x[1])) * 60  + suppressWarnings(as.numeric(x[3])))
+        }
+        # 1)"N/A"
+        else Runtime_num <- c(Runtime_num, NA)
+}
+
+movies_numeric$Runtime <- Runtime_num
+
+head(movies_numeric)
+
+# check missing value for each row
+sapply(movies_numeric, function(x) sum(is.na(x)))
+
+# remove all the NA rows
+# convert missing value to the median of each column
+for( i in 1:10){
+movies_numeric[, i][is.na(movies_numeric[,i])] <- 
+  median(movies_numeric[,i], na.rm = T)
+}
+
+# write funtion to calculate mse for train and test dataset
+calculate_MSE <- function(dataset, percent){
+  
+  # splict data to train and test
+  sample_size <- floor(percent * nrow(dataset))
+  train_index <- sample(seq_len(nrow(dataset)), size = sample_size)
+  train <- dataset[train_index,]
+  test <- dataset[-train_index,]
+  
+  # train model
+  lm_model <- lm(Profit~., data = train)
+  #summary(lm_model)
+  # predict train accuracy
+  profit_pred_test <- predict(lm_model, newdate = test)
+  train_mse <- mean((train$Profit - predict(lm_model, train)) ^ 2)
+  test_mse <- mean((test$Profit - predict(lm_model, test)) ^ 2)
+
+  # combine train_mse and test_mse and return it
+  c(train_mse,test_mse)  
+} 
+
+# write function to do the run calculate_MSE iter times and calculate the mean
+calculate_MSE_mean <- function(dataset, iter, percent){
+    each_mse <- c(0, 0)
+    for(j in 1:iter) {
+      mse <- calculate_MSE(dataset, percent)
+      each_mse <- each_mse + mse
+    }
+    each_mse / iter
+}
+
+# calculate the mse with different percent of train and test data range from 0.05 to 0.95
+final_mse<- vector(, 3)
+for(i in 0:18){
+  
+  percent <- 0.05 + i * 0.05 
+  each_mse <- calculate_MSE_mean(movies_numeric, iter = 100, percent = percent)
+  
+    each_mse <- c(percent, each_mse)
+  
+  final_mse <- rbind(final_mse, each_mse)
+  
+}
+
+# remove the first placeholder row  
+final_mse <- final_mse[-1, ]
+colnames(final_mse) <- c("train_percent", "train", "test")
+#head(final_accuracy)
+rownames(final_mse) <- NULL
+
+final_mse <- as.data.frame(final_mse)
+print(paste("the best mse for train set with only numeric variable is:", min(final_mse$train), sep = " "))
+print(paste("the best mse for test set with only numeric variable is:", min(final_mse$test), sep = " "))
+
+final_mse$train_percent <- factor(as.character(final_mse$train_percent))
+head(final_mse)
+melt_mse <- melt(final_mse, id = "train_percent")
+
+colnames(melt_mse) <- c("train_percentage", "variable", "mse")
+
+ggplot(melt_mse, 
+       aes(x = train_percentage, y=mse, color = variable)) + 
+  geom_point() + 
+  
+  ggtitle("Compare model mse with different percentage of training data with only numeric variables") 
+  
+
+```
+
+2. Try to improve the prediction quality in (1) as much as possible by adding feature transformations of the numeric variables. Explore both numeric transformations such as power transforms and non-numeric transformations of the numeric variables like binning (e.g.,is_budget_greater_than_3M). Explain which transformations you used and why you chose them. Graph the train and test MSE as a function of the train set size (averaged over 10 random data partitions as described above)? 
+
+The strategy is to create new varibles by taking log, square, cube of each numeric variables, run lm model with all created variables, then only select the variables which contribute significantly to the final model.    
+
+The lm model based on numeric and transformed numeric variables could get mse at 9.2e+15 for test data. 
+```{r}
+log_val <- function(x) log10(x)
+sqr_val <- function(x) x^2
+cub_val <- function(x) x^3
+func_list <- c(log_val, sqr_val, cub_val)
+
+func_name <- c("log_", "sqr_", "cub_")
+col_name <- colnames(movies_numeric) 
+
+# avoid the Profit column
+col_name <- col_name[-length(col_name)]
+# calculate the mse for lm model with any tranformation of the numeric varibles
+# mse_original <- calculate_MSE_mean(movies_numeric, iter = 10, percent = 0.7)
+# only select the test mse
+# mse_original_test <- mse_original[2]
+keeped_columns <- data.frame(matrix(NA, nrow = dim(movies_numeric)[1], ncol= 0))
+keeped_column_names <- c()
+for (i in seq_along(func_list)){
+  # iterate through each transformation function
+    func <- func_list[i]
+   # iterate through each numeric column
+     for (j in seq_along(col_name) ) {
+      
+       created_col_name <- paste(func_name[i], col_name[j], sep = "") 
+       created_col <- func_list[[i]](movies_numeric[, col_name[j]] + 0.01)
+       # print(created_col_name)
+       # add this created column to movies_numeric dataframe
+       #movies_numeric[,created_col_name]<- func_list[[i]](movies_numeric[, col_name[j]] + 0.01)
+        #print(head(movies_numeric))
+       #mse <- calculate_MSE_mean(movies_numeric, iter = 10, percent = 0.7)
+       #print(mse)    
+       #mse_test <- mse[2]
+          #if((mse_original_test - mse_test)/mse_original_test > 0.05)
+           #{ print(created_col_name)
+        keeped_columns <- cbind(keeped_columns, created_col)
+        keeped_column_names <- c(keeped_column_names, created_col_name)
+          #   }
+             # remove this newly created column before next iteration
+             #movies_numeric <- movies_numeric[, 1:11]
+          }         
+}
+
+colnames(keeped_columns) <- keeped_column_names
+#head(keeped_columns)
+
+# because we cubed each column and some variable will be extreme large, it is necessary to normalize the data. 
+
+# then we normalize the data
+
+preObj <- preProcess(keeped_columns, method=c("center", "scale"))
+keeped_columns<- predict(preObj, keeped_columns)
+#keeped_columns_1 <- cbind(keeped_columns, Profit = movies_merged$Profit)
+#lm_model_keep <- lm(Profit~., data = keeped_columns_1)
+#summary(lm_model_keep)
+
+# then we combine all these created columns with numeric data
+movies_combined1 <-  cbind(movies_numeric, keeped_columns)
+lm_model_1 <- lm(Profit~., data = movies_combined1)
+summary(lm_model_1)
+# from the summary of the model we only keep the most significat columns
+
+created_numeric <- keeped_columns[,c("log_tomatoRotten","sqr_tomatoRating", "sqr_tomatoFresh", "sqr_tomatoUserReviews", "cub_tomatoRating", "cub_tomatoFresh","cub_tomatoUserMeter","cub_tomatoUserReviews")]
+movies_combined2 <-  cbind(movies_numeric, created_numeric)
+
+
+final_mse<- vector(, 3)
+for(i in 0:18){
+  
+  percent <- 0.05 + i * 0.05 
+  each_mse <- calculate_MSE_mean(movies_combined2, iter = 100, percent = percent)
+  
+  each_mse <- c(percent, each_mse)
+  
+  final_mse <- rbind(final_mse, each_mse)
+  
+}
+
+# remove the first placeholder row  
+final_mse <- final_mse[-1, ]
+colnames(final_mse) <- c("train_percent", "train", "test")
+#head(final_accuracy)
+rownames(final_mse) <- NULL
+
+final_mse <- as.data.frame(final_mse)
+
+print(paste("the best mse for train set with only numeric variable is:", min(final_mse$train), sep = " "))
+print(paste("the best mse for test set with only numeric variable is:", min(final_mse$test), sep = " "))
+
+final_mse$train_percent <- factor(as.character(final_mse$train_percent))
+head(final_mse)
+melt_mse <- melt(final_mse, id = "train_percent")
+
+colnames(melt_mse) <- c("train_percentage", "variable", "mse")
+
+ggplot(melt_mse, 
+       aes(x = train_percentage, y=mse, color = variable)) + 
+  geom_point() + 
+  
+  ggtitle("Compare model mse with diff percent of training data with transformed numeric variables")
+```
+3. Write code that featurizes genre (can use code from Part-I), actors, directors, and other categorical variables. Explain how you encoded the variables into features.
+
+for categorical variables genre, actors, rate, director, writer, language, country, awards, and production, Website, only rate and production are single variable at each row and we can directly convert them to dummy varibles.     
+
+for categorical variables genre, actors, director, writer, language, country, they all contains multiple varibles for each row. Therefore we could not use one-hot encoding of dummy varibles to convert them into numerical varible. The strategy is to find the terms for each row by converting to document term matrix, find the most abundance terms and only choose these terms to create dummy varible.  
+
+for the Plot column, basically it is just free text. I use topic modeling to automatically classify sets of documents into themes. The algorithm that I used is Latent Dirichlet Allocation(LDA). The basic assumption behind LDA is that each of the documents in a collection consist of a mixture of collection-wide topics. However, in reality we observe only documents and words, not topics – the latter are part of the hidden (or latent) structure of documents. The aim is to infer the latent topic structure given the words and document.  LDA does this by recreating the documents in the corpus by adjusting the relative importance of topics in documents and words in topics iteratively. 
+
+```{r, echo=FALSE}
+#length(table(movies_merged$Rated))
+#length(table(movies_merged$Production))
+
+# treat with writer column
+# select the writer column
+writer <- movies_merged$Writer
+# convert it to lower case
+writer <- tolower(writer)
+# inspect data
+# head(writer)
+# replace everything inside ()
+writer <- gsub(" \\([a-z]*\\)","", writer)
+# replace space
+writer <- gsub(" ","_", writer)
+# split string on ",_"
+writer <- gsub(",_", " ", writer)
+corp <- Corpus(VectorSource(writer))
+dtm <- DocumentTermMatrix(corp)
+writer_df <- data.frame(as.matrix(dtm)) #5178 rows
+# sort the writers by the number of their movies
+sort(colSums(writer_df),decreasing = T)[1:10]
+# then top 8 is selected
+sorted_writer <- sort(colSums(writer_df), decreasing = TRUE)[1:8]
+name_list <- names(sorted_writer)
+# only subset the top 10 Genres and complete.cases
+sub_writer_df <- writer_df[,names(sorted_writer)]
+names(sub_writer_df) <- paste("writer_", name_list, sep="")
+dim(sub_writer_df) ## 3332 X 8  
+#head(sub_writer_df)
+
+
+# treat with genre
+# select the genre column
+genre <- movies_merged$Genre
+# convert it to lower case
+genre <- tolower(genre)
+# inspect data
+#head(genre)
+# split string on ","
+genre <- gsub(",", " ", genre)
+corp <- Corpus(VectorSource(genre))
+dtm <- DocumentTermMatrix(corp)
+
+genre_df <- data.frame(as.matrix(dtm)) #5178 rows
+# sort the writers by the number of their movies
+sort(colSums(genre_df),decreasing = T)[1:10]
+# then top 7 is selected
+sorted_genre <- sort(colSums(genre_df), decreasing = TRUE)[1:7]
+name_list <- names(sorted_genre)
+
+sub_genre_df <- genre_df[,names(sorted_genre)]
+dim(sub_genre_df) ## 3332 
+#head(sub_genre_df)
+
+# analyze actors
+# select the actors column
+actors <- movies_merged$Actors
+# convert it to lower case
+actors <- tolower(actors)
+# inspect data
+#head(actors)
+# replace space
+actors <- gsub(" ","_", actors)
+# split string on ",_"
+actors <- gsub(",_", " ", actors)
+corp <- Corpus(VectorSource(actors))
+dtm <- DocumentTermMatrix(corp)
+actors_df <- data.frame(as.matrix(dtm)) #5178 rows
+# sort the actors by the number of their movies
+sort(colSums(actors_df),decreasing = T)[1:15]
+# then top 8 is selected
+sorted_actors <- sort(colSums(actors_df), decreasing = TRUE)[1:8]
+name_list <- names(sorted_actors)
+# only subset the top 8 actors
+sub_actors_df <- actors_df[,names(sorted_actors)]
+names(sub_actors_df) <- paste("actor_", name_list, sep="")
+
+dim(sub_actors_df) ## 3332X8
+#head(sub_actors_df)
+
+# analysize director
+# select the Director column
+director <- movies_merged$Director
+# convert it to lower case
+director <- tolower(director)
+# inspect data
+#head(director, 10)
+# replace space
+director <- gsub(" ","_", director)
+# split string on ",_"
+director <- gsub(",_", " ", director)
+corp <- Corpus(VectorSource(director))
+dtm <- DocumentTermMatrix(corp)
+director_df <- data.frame(as.matrix(dtm)) #3332 X 2081 
+# sort the director by the number of their movies
+sort(colSums(director_df),decreasing = T)[1:15]
+# then top 7 is selected
+sorted_director <- sort(colSums(director_df), decreasing = TRUE)[1:7]
+name_list <- names(sorted_director)
+# only subset the top 7 directors and complete.cases
+sub_director_df <- director_df[,names(sorted_director)]
+names(sub_director_df) <- paste("directo_", name_list, sep="")
+
+dim(sub_director_df) ## 3332 
+#head(sub_director_df)
+
+# analysize language
+# select the Language column
+language <- movies_merged$Language
+# convert it to lower case
+language <- tolower(language)
+# inspect data
+#head(language, 10)
+# replace comma with space
+language <- gsub(","," ", language)
+corp <- Corpus(VectorSource(language))
+dtm <- DocumentTermMatrix(corp)
+language_df <- data.frame(as.matrix(dtm)) #3332 X 133
+# sort the language by the number of related movies
+sort(colSums(language_df),decreasing = T)[1:15]
+# then top 9 is selected
+sorted_language <- sort(colSums(language_df), decreasing = TRUE)[1:9]
+name_list <- names(sorted_language)
+# only subset the top 9 languages are selected
+sub_language_df <- language_df[,names(sorted_language)] # 9 column
+dim(sub_language_df) ## 3332 
+#head(sub_language_df)
+
+
+# analysize country
+# select the country column
+country <- movies_merged$Country
+# convert it to lower case
+country <- tolower(country)
+# inspect data
+#head(country, 10)
+# replace comma with space
+country <- gsub(","," ", country)
+corp <- Corpus(VectorSource(country))
+dtm <- DocumentTermMatrix(corp)
+country_df <- data.frame(as.matrix(dtm)) #3332 X 95
+# sort the country by the number of related movies
+sort(colSums(country_df),decreasing = T)[1:15]
+# then top 6 is selected
+sorted_country <- sort(colSums(country_df), decreasing = TRUE)[1:6]
+name_list <- names(sorted_country)
+# only subset the top 6 countries are selected
+sub_country_df <- country_df[,names(sorted_country)] # 6 column
+dim(sub_country_df) ## 3332 
+#head(sub_country_df)
+
+
+# deal with the awards 
+
+#since rewards column has two types of variables: awards and normination and it has inherent order, we can create the level based on number of reward. First we count total number of awards and normination, then we cut it into 4 ranges according to the quantile of total number of awards and normination and set it to one of the 4 levels (part of the codes were taken from my project1)
+
+awards_normination <- c()
+
+for( i in seq_along(movies_merged$Awards)){
+        if(movies_merged$Awards[i] == "N/A"){
+                awards_normination <- c(awards_normination, 0)
+        }else{
+                x <- movies_merged$Awards[i]
+                temp <- gregexpr("[0-9]+", x) # find the numbers with any number of digits
+                # extract the awards and normination and sum them  
+              total_awards_normination  <- sum(as.numeric(unlist(regmatches(x, temp))))
+  
+         awards_normination <- c(awards_normination, total_awards_normination)
+        }
+}
+
+# Then we can use quantile function find the distriution of the awards
+quantile(awards_normination)
+awards_df <- data.frame(matrix(0, nrow = nrow(movies_merged), ncol = 4))
+colnames(awards_df) <- c("award_l_1", "award_l_2", "award_l_3", "award_l_4")
+for(i in seq_along(awards_normination)){
+  if (awards_normination[i] > 16){
+    awards_df[i, 4] <-  1
+  }else if(awards_normination[i] > 5){
+    awards_df[i, 3] <- 1
+  }else if(awards_normination[i] > 1){
+    awards_df[i, 2] <- 1
+  }else{awards_df[i, 1] <- 1}
+}
+dim(awards_df)
+
+# deal with rate 
+table(movies_merged$Rated)
+#we can see there are only 11 types of rate varibles. And only 3 types(PG, PG-13, R) are totally dominant, so we can set 3 levels for rate.  
+rate_df <- data.frame(matrix(0, nrow = nrow(movies_merged), ncol = 3))
+colnames(rate_df) <- c("rate_PG", "rate_PG_13", "rate_R")
+for(i in seq_along(movies_merged$Rated)){
+  if (movies_merged$Rated[i] == "PG"){
+    rate_df$rate_PG[i] = 1
+  }else if(movies_merged$Rated[i] == "PG-13"){
+    rate_df$rate_PG_13[i] =1
+  }else if(movies_merged$Rated[i] == "R"){
+    rate_df$rate_R[i] =1
+  }
+}
+# check the convertion is corrected or not
+colSums(rate_df)
+dim(rate_df)
+
+
+# deal with Production
+length(sort(table(movies_merged$Production), decreasing = T))
+# we can see there are 562 productions. Then we can take a look of the very top ones 
+sort(table(movies_merged$Production), decreasing = T)[1:15]
+# then I decided to choose the production which has at least 100 movies, that will give me 5 virables. 
+production_df <- data.frame(matrix(0, nrow = nrow(movies_merged), ncol = 5))
+colnames(production_df) <- c("pro_warner", "pro_universal", "pro_20th_cen", "pro_paramount", "pro_sony")
+for(i in seq_along(movies_merged$Production)){
+  if ( movies_merged$Production[i] == "Warner Bros. Pictures" ){
+    production_df$pro_warner[i] <-  1
+  }else if(movies_merged$Production[i] == "Universal Pictures"){
+    production_df$pro_universal[i] <- 1
+  }else if(movies_merged$Production[i] == "20th Century Fox"){
+    production_df$pro_20th_cen[i] <- 1
+  }else if(movies_merged$Production[i] == "Paramount Pictures"){
+    production_df$pro_paramount[i] <- 1
+}else if(movies_merged$Production[i] == "Sony Pictures"){
+    production_df$pro_sony[i] <- 1
+}
+}
+# check the convertion is corrected or not
+colSums(production_df)
+dim(production_df)
+
+# treat with Plot
+
+# create a corpus from vector
+docs <- Corpus(VectorSource(movies_merged$Plot))
+# start processing
+# transfer to lower case
+docs <- tm_map(docs, content_transformer(tolower))
+# remove potentially problematic symbols
+toSpace <- content_transformer(function(x, pattern) { return (gsub(pattern, " ", x))})
+  docs <- tm_map(docs, toSpace, "-")
+  docs <- tm_map(docs, toSpace, "'")
+  # remove punctuation               
+  docs <- tm_map(docs, removePunctuation)
+  # remove digits              
+  docs <- tm_map(docs, removeNumbers)
+  # remove stopwords
+  docs <- tm_map(docs, removeWords,stopwords("english"))
+  # remove whitespace
+  docs <- tm_map(docs, stripWhitespace)
+  # stem document
+  docs <- tm_map(docs, stemDocument)
+  # check every row
+  #as.character(docs[1])
+  #Create document-term matrix
+  dtm <- DocumentTermMatrix(docs)
+#dtm1 <- dtm[, colSums(se)]
+  # inspect the term frequency matrix
+  dim(as.matrix(dtm))
+# find which row.sum equals to 0
+raw.sum = apply(dtm, 1, FUN= sum)
+
+zero_rows = which(raw.sum== 0)
+
+length(zero_rows)
+dtm1 <- as.matrix(dtm)
+#dtm1[1:5, 1:5]  
+# set a random column with 1 for all 0 rows to avoid error
+for(i in 1:dim(dtm1)[1]){
+  if (raw.sum[i] == 0){
+    col = sample(dim(dtm1)[2], 1)
+    dtm1[i, col] <- 1
+  }
+}
+#collapse matrix by summing over columns
+  freq <- colSums(as.matrix(dtm1))
+  #length should be total number of terms
+  print(paste("The size of the vocabulary is : ",length(freq)))
+  #create sort order (descending)
+  ord <- order(freq,decreasing=TRUE)
+  #List all terms in decreasing order of freq and write to disk
+print("The top frequencied words: ")  
+freq[ord][1:10]
+  
+  # start the topicmodeling
+  #Set parameters for Gibbs sampling
+  burnin <- 4000 # the steps of the walk discarded
+  iter <- 2000 # num of iterations
+  thin <- 500 # taking every 500th iteration for futher use to avoid correlation btw samples
+  seed <-list(2003,5,63,100001,765) # set seed
+  nstart <- 5 # use 5 diff starting points for 5 independent runs
+  best <- TRUE # instructs the algorithm to return results of the run with the highest posterior probability
+  
+  # Number of topics
+  k <- 5
+ #Run LDA using Gibbs sampling
+ldaOut <-LDA(dtm1,k, method="Gibbs", control=list(nstart=nstart, seed = seed, best=best, burnin = burnin, iter = iter, thin=thin))
+
+
+  # write out results
+  # docs to topics
+  ldaOut.topics <- as.matrix(topics(ldaOut))
+  dim(ldaOut.topics)
+  
+  #top 6 terms in each topic
+  ldaOut.terms <- as.matrix(terms(ldaOut,6))
+print(ldaOut.terms)
+  #write.csv(ldaOut.terms,file=paste("LDAGibbs",k,"TopicsToTerms.csv""))
+  #dim(ldaOut)
+  #probabilities associated with each topic assignment
+  topicProbabilities <- as.data.frame(ldaOut@gamma)
+  dim(topicProbabilities)
+  colnames(topicProbabilities) <- c("top_1", "top_2", "top_3", "top_4", "top_5")
+  #Find relative importance of top 2 topics
+  #topic1ToTopic2 <- lapply(1:nrow(dtm),function(x)
+  #  sort(topicProbabilities[x,])[k]/sort(topicProbabilities[x,])[k-1])
+#}
+
+
+#ggplot(coef_df[coef_df$coef > 10,], aes(reorder(variables,coef), coef)) +
+#geom_bar(stat = "identity", fill = "#9999CC") +
+#coord_flip()  +
+#xlab("Director")
+
+```
+
+4. Use linear regression to predict profit based on all available non-numeric variables (using the transformations in (3). Graph the train and test MSE as a function of the train set size (averaged over 10 random data partitions as described above)?
+
+First I build a lm model based on all the created categorical variables from question 3. Then select the significant variables. The lm model based on selecyted transformed categorical variables could get mse at 1.3e+16 for test data. 
+
+```{r}
+# combine all the variables created in question 3
+movies_categorical <- cbind(sub_writer_df, sub_genre_df, sub_actors_df, sub_director_df, sub_language_df, sub_country_df, awards_df, rate_df, production_df, topicProbabilities, Profit = movies_merged$Profit)
+
+dim(movies_categorical) # 3332 X 63
+
+lm_model_2 <- lm(Profit~., data = movies_categorical)
+summary(lm_model_2)
+
+# then I selected all the columns which are significant on the lm model. 
+created_categorical <- movies_categorical[,c("writer_david_s._goyer","drama", "action", "adventure", "actor_johnny_depp", "usa",  "award_l_1", "award_l_2", "award_l_3", "pro_warner",  "pro_universal", "pro_20th_cen","top_1", "Profit")]
+
+final_mse<- vector(, 3)
+for(i in 0:18){
+  
+  percent <- 0.05 + i * 0.05 
+  each_mse <- calculate_MSE_mean(created_categorical, iter = 100, percent = percent)
+  
+  each_mse <- c(percent, each_mse)
+  
+  final_mse <- rbind(final_mse, each_mse)
+  
+}
+
+# remove the first placeholder row  
+final_mse <- final_mse[-1, ]
+colnames(final_mse) <- c("train_percent", "train", "test")
+#head(final_accuracy)
+rownames(final_mse) <- NULL
+
+final_mse <- as.data.frame(final_mse)
+print(paste("the best mse for train set with transformed categorical variable is:", min(final_mse$train), sep = " "))
+print(paste("the best mse for test set with only transformed categorical variable is:", min(final_mse$test), sep = " "))
+
+
+final_mse$train_percent <- factor(as.character(final_mse$train_percent))
+head(final_mse)
+melt_mse <- melt(final_mse, id = "train_percent")
+
+colnames(melt_mse) <- c("train_percentage", "variable", "mse")
+
+ggplot(melt_mse, 
+       aes(x = train_percentage, y=mse, color = variable)) + 
+  geom_point() + 
+  
+  ggtitle("Compare model mse with different percentage of training data on non-numerical varible")
+
+```
+
+5. Try to improve the prediction quality in (1) as much as possible by using both numeric and non- numeric variables as well as creating additional transformed features including interaction features (for example is_genre_comedy x is_budget_greater_than_3M). Explain which transformations you used and why you chose them. Graph the train and test MSE as a function of the train set size (averaged over 10 random data partitions as described above)?
+
+I first combine 1) all the numeric variables from original data, 2) transfromed numeric varibles from question 2, and 3) transformed categorical variables from question 3 and 4. Then build a lm model to remove the non-significant variables. Based on these variables, the mse of this model for test data can reach 8.9e+15. Then I create variables for all possible interactions btween numerical variables and categorical variables. Then build a lm model to remove the non-significant variables. Based on these variables containing selected interaction variables, the mse for test data can reach 8.7e+15.    
+
+```{r}
+movies_combined2$Profit <- NULL
+movies_combined3 <- cbind(movies_combined2, created_categorical)
+lm_model_3 <- lm(Profit~., data = movies_combined3)
+summary(lm_model_3)
+
+# from model summary, we can see some varialbes did not contribute, we could drop it. 
+movies_combined4 <- subset(movies_combined3, select = -c(actor_johnny_depp, usa, pro_universal))
+
+lm_model_4 <- lm(Profit~., data = movies_combined4)
+summary(lm_model_4)
+
+
+final_mse<- vector(, 3)
+for(i in 0:18){
+  
+  percent <- 0.05 + i * 0.05 
+  each_mse <- calculate_MSE_mean( movies_combined4, iter = 100, percent = percent)
+  
+  each_mse <- c(percent, each_mse)
+  
+  final_mse <- rbind(final_mse, each_mse)
+  
+}
+
+# remove the first placeholder row  
+final_mse <- final_mse[-1, ]
+colnames(final_mse) <- c("train_percent", "train", "test")
+#head(final_accuracy)
+rownames(final_mse) <- NULL
+
+final_mse <- as.data.frame(final_mse)
+print(paste("the best mse for train set with combined numeric and transformed categorical variable is:", min(final_mse$train), sep = " "))
+print(paste("the best mse for test set with combined numeric and  transformed categorical variable is:", min(final_mse$test), sep = " "))
+
+
+final_mse$train_percent <- factor(as.character(final_mse$train_percent))
+#head(final_mse)
+melt_mse <- melt(final_mse, id = "train_percent")
+
+colnames(melt_mse) <- c("train_percentage", "variable", "mse")
+
+ggplot(melt_mse, 
+       aes(x = train_percentage, y=mse, color = variable)) + 
+  geom_point() + 
+  
+  ggtitle("Compare model mse with different percentage of training data on numerical and categorical variables") 
+
+
+# then I tried to further improve the mse by creating the interaction between numeric variables and categorical variables. 
+numeric_v <- 1:18
+categorical_v <- 19:28
+inter_data <- data.frame(matrix(0, nrow = dim(movies_numeric)[1], ncol= 0))
+inter_name <- c()
+for(i in numeric_v){
+  name1 <- colnames(movies_combined4)[i]
+  
+  for(j in categorical_v){
+    name2 <- colnames(movies_combined4)[j]
+    new_name <- paste("inter", name1, name2, sep = "_")
+    inter_name <- c(inter_name, new_name)
+    new_col = movies_combined4[i] * movies_combined4[j]
+    inter_data <- cbind(inter_data, new_col)
+  }
+}
+colnames(inter_data) <- inter_name
+
+movies_combined5 <- cbind(movies_combined4, inter_data)
+# run a lm model on it
+lm_model_5 <- lm(Profit~., data = movies_combined5)
+# then only select the significant columns
+movies_combined6 <- movies_combined5[, (summary(lm_model_5)$coefficients[, 4] < 0.05)]
+movies_combined6 <- cbind(movies_combined6, Profit = movies_merged$Profit)
+
+
+final_mse<- vector(, 3)
+for(i in 0:18){
+  
+  percent <- 0.05 + i * 0.05 
+  each_mse <- calculate_MSE_mean( movies_combined6, iter = 100, percent = percent)
+  
+  each_mse <- c(percent, each_mse)
+  
+  final_mse <- rbind(final_mse, each_mse)
+  
+}
+
+# remove the first placeholder row  
+final_mse <- final_mse[-1, ]
+colnames(final_mse) <- c("train_percent", "train", "test")
+#head(final_accuracy)
+rownames(final_mse) <- NULL
+
+final_mse <- as.data.frame(final_mse)
+print(paste("the best mse for train set with combined numeric and transformed categorical variable is:", min(final_mse$train), sep = " "))
+print(paste("the best mse for test set with combined numeric and  transformed categorical variable is:", min(final_mse$test), sep = " "))
+
+
+final_mse$train_percent <- factor(as.character(final_mse$train_percent))
+#head(final_mse)
+melt_mse <- melt(final_mse, id = "train_percent")
+
+colnames(melt_mse) <- c("train_percentage", "variable", "mse")
+
+ggplot(melt_mse, 
+       aes(x = train_percentage, y=mse, color = variable)) + 
+  geom_point() + 
+  
+  ggtitle("Compare model mse with numerical, categorical and interacted variables") 
+
+```
